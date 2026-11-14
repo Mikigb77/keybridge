@@ -1,0 +1,11 @@
+# Created by Start-KeyBridge on first run (contains absolute paths of this machine)
+KeyBridge.lnk
+
+# Bluetooth drivers built locally by wsl/build-drivers.sh for one specific WSL kernel
+wsl/modules/
+
+# Python / editor noise
+__pycache__/
+*.pyc
+.vscode/
+.idea/

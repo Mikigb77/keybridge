@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux side (bash + Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: shellcheck --severity=warning wsl/*.sh
+
+      - name: Python syntax
+        run: python3 -m py_compile wsl/keybridge.py wsl/kcrc.py
+
+      - name: Pyflakes
+        run: |
+          python3 -m pip install --quiet pyflakes
+          python3 -m pyflakes wsl/keybridge.py wsl/kcrc.py
+
+      - name: HID report descriptor is well-formed
+        run: |
+          python3 - <<'PY'
+          import ast
+          src = open("wsl/keybridge.py", encoding="utf-8").read()
+          tree = ast.parse(src)
+          node = next(n for n in tree.body
+                      if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "REPORT_MAP")
+          desc = bytes.fromhex(ast.literal_eval(node.value))
+          i, depth, size, count, rid, bits = 0, 0, 0, 0, None, {}
+          while i < len(desc):
+              b = desc[i]; n = (0, 1, 2, 4)[b & 3]; tag = b & 0xFC
+              val = int.from_bytes(desc[i + 1:i + 1 + n], "little")
+              if tag == 0xA0: depth += 1
+              if tag == 0xC0: depth -= 1
+              if tag == 0x74: size = val
+              if tag == 0x94: count = val
+              if tag == 0x84: rid = val
+              if tag == 0x80: bits[rid] = bits.get(rid, 0) + size * count
+              i += 1 + n
+          assert depth == 0, "unbalanced collections"
+          assert bits == {1: 64, 2: 56}, bits      # keyboard report 8 bytes, mouse report 7 bytes
+          print("report sizes (bytes):", {k: v // 8 for k, v in bits.items()})
+          PY
+
+  windows:
+    name: Windows side (PowerShell + C#)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse PowerShell scripts (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $bad = 0
+          Get-ChildItem windows -Recurse -Filter *.ps1 | ForEach-Object {
+            $t = $null; $e = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$t, [ref]$e)
+            if ($e) { $e | ForEach-Object { Write-Host "$($_.Extent.File):$($_.Extent.StartLineNumber) $($_.Message)" }; $bad++ }
+          }
+          if ($bad) { exit 1 }
+          Write-Host 'All PowerShell scripts parse.'
+
+      - name: Compile the touchpad helper (MouseBridge.cs, as Add-Type does at runtime)
+        shell: powershell
+        run: |
+          Add-Type -Path windows/MouseBridge.cs
+          if (-not ([KeyBridge.MouseBridge] -as [type])) { exit 1 }
+          Write-Host 'MouseBridge.cs compiles.'

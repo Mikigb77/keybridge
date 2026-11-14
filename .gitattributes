@@ -1,0 +1,11 @@
+# Linux-side files must keep LF endings even when cloned on Windows (bash fails on CRLF).
+*.sh   text eol=lf
+*.py   text eol=lf
+# Windows-side files
+*.ps1  text eol=crlf
+*.cmd  text eol=crlf
+*.cs   text eol=crlf
+*.ini  text eol=crlf
+*.md   text
+*.yml  text eol=lf
+*.ico  binary
